@@ -1,0 +1,71 @@
+select *
+from crosstab($$
+with a as (select o."Assembly ID",
+                  tron."Time Clock ID",
+                  tron."Time Clock",
+                  tron."Manufacturing Code",
+                  tron."Workstation Code",
+                  w."Group ID",
+                  pg."Description"                                            as "PG Name",
+                  wc."Cell Name",
+                  a."Description",
+                  (select troff."Time Clock ID"
+                   from "Time Record" troff
+                   where troff."Action" = 5
+                     and troff."Manufacturing Code" = tron."Manufacturing Code"
+                     and troff."Workstation Code" = tron."Workstation Code"
+                     and troff."Time Clock ID" > tron."Time Clock ID"
+                   order by troff."Time Clock ID" desc
+                   limit 1)                                                   as "Clock Off TCID",
+                  (select min(tr."Time Clock")
+                   from "Time Record" tr
+                   where tr."Manufacturing Code" = tron."Manufacturing Code") as "First Clock",
+                  (select max(tr."Time Clock")
+                   from "Time Record" tr
+                   where tr."Manufacturing Code" = tron."Manufacturing Code") as "Last Clock"
+​
+           from "Orders" o
+                  left join "Schedules" s on s."Order ID" = o."Order ID"
+                  left join "Time Record" tron
+                    on tron."Manufacturing Code" = s."Manufacturing Code" and tron."Action" = 4
+                  left join "Workstations" w on w."Code" = tron."Workstation Code"
+                  left join "Assemblies" a on a."Assembly ID" = o."Assembly ID"
+                  left join "Part Groups" pg on pg."Part Group ID" = a."Part Group ID"
+                  left join "Work Cells" wc on wc."Work Cell ID" = pg."Work Cell ID"
+           where true 
+           -- AND o."Assembly ID" = 43017
+           -- AND o."Date Entered" between 'start' and 'end'
+           ),
+     b as (select a."Assembly ID",
+                  a."Group ID",
+                  a."PG Name",
+                  a."Cell Name",
+                  a."Description",
+                  to_char(tr."Time Clock", 'YYYY-MM')              as offclock,
+                  tr."Pieces",
+                  (tr."Time Clock" - a."Time Clock") / tr."Pieces" as "Per Piece Time",
+                  (a."Last Clock" - a."First Clock")               as "Time On Floor"
+           from a
+                  left join "Time Record" tr on tr."Time Clock ID" = a."Clock Off TCID"
+           where tr."Pieces" > 0
+    -- and (tr."Time Clock" - a."Time Clock") > '1 minute'::interval
+    )
+select b."Assembly ID" || '-' || b.offclock,
+       b."Assembly ID",
+       b."PG Name",
+       b."Cell Name",
+       b."Description",
+       a."Assembly Number",
+       a."Revision",
+       b.offclock,
+       (EXTRACT(epoch from avg(b."Time On Floor")) / 3600.0) :: numeric(16, 4)  as "Average Time On Floor (h)",
+       g."Description",
+       (EXTRACT(epoch from avg(b."Per Piece Time")) / 3600.0) :: numeric(16, 4) as "Average Per Piece Time (h)"
+from b
+       left join "WS Groups" g on g."Group ID" = b."Group ID"
+       left join "Assemblies" a on a."Assembly ID" = b."Assembly ID"
+group by b."Assembly ID", b.offclock, a."Assembly Number", a."Revision", b."PG Name", b."Cell Name", b."Description",
+         g."Description"
+order by b."Assembly ID", b.offclock, a."Revision", g."Description"
+$$ :: text,
+              $$select "Description" from "WS Groups" order by "Description"$$) ct (row text, assembly_id bigint, pg_name text, cell_name text, description text, part_number text, revision text, date text, "Avg Time On Floor (h)" numeric(16, 4), "Assembly" numeric(16, 4), "Bend-Diacro" numeric(16, 4), "Bend-Pines" numeric(16, 4), "Brazing" numeric(16, 4), "Cleaning" numeric(16, 4), "Compressors" numeric(16, 4), "Cutting" numeric(16, 4), "Deburring" numeric(16, 4), "Decoiling" numeric(16, 4), "Endforming" numeric(16, 4), "Equipment" numeric(16, 4), "Hose Assembly" numeric(16, 4), "Machining" numeric(16, 4), "Other Workstations" numeric(16, 4), "Post Braze Assembly" numeric(16, 4), "Pressure Test" numeric(16, 4), "Quality Control" numeric(16, 4), "Routing" numeric(16, 4), "Shipping" numeric(16, 4), "Vendor Labor" numeric(16, 4), "Welding" numeric(16, 4));
