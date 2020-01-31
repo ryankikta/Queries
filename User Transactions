@@ -1,0 +1,75 @@
+SELECT tyear,
+       tmonth,
+       balance,
+       customer_deposits,
+       returns_canceled + MALA_adding AS returns_canceled,
+       credits_bonus + MALA_subbing   AS credits_bonus,
+       billed_transactions,
+       additional_charges
+FROM (SELECT tyear,
+             tmonth,
+             sum(trb.balance)               AS balance,
+             sum(trb.adding)                AS customer_deposits,
+             sum(trb.returns)               AS returns_canceled,
+             sum(trb.bonus)                 AS credits_bonus,
+             sum(trb.billed) * -1           AS billed_transactions,
+             sum(trb.billed2) * -1          AS additional_charges,
+             (SELECT round(COALESCE(sum(a.balance - (a.amount + a.previous_balance)), 0), 2) AS delta
+              FROM wp_transactions_errors a
+              WHERE month(timestamp) = tmonth
+                AND year(TIMESTAMP) = tyear
+                AND a.type IN (1, 5, 7))    AS MALA_adding,
+             (SELECT round(COALESCE(sum(a.balance - (a.amount + a.previous_balance)), 0), 2) AS delta
+              FROM wp_transactions_errors a
+              WHERE month(timestamp) = tmonth
+                AND year(TIMESTAMP) = tyear
+                AND a.type IN (0, 2, 3, 6)) AS MALA_subbing
+      FROM (SELECT *, (coalesce((SELECT round(a.balance, 2)
+                                 FROM wp_transactions a
+                                 WHERE a.userid = tr.userid
+                                   AND a.id <= tr.id
+                                 ORDER BY a.id DESC
+                                 LIMIT 1), 0))                            AS balance,
+                -- add user credits
+                      (coalesce((SELECT round(sum(a.amount), 2)
+                                 FROM wp_transactions a
+                                 WHERE a.userid = tr.userid
+                                   AND a.type IN (1)
+                                   AND month(a.timestamp) = tr.tmonth
+                                   AND year(a.timestamp) = tr.tyear), 0)) AS adding,
+                      (coalesce((SELECT round(sum(a.amount), 2)
+                                 FROM wp_transactions a
+                                 WHERE a.userid = tr.userid
+                                   AND a.type IN (5)
+                                   AND month(a.timestamp) = tr.tmonth
+                                   AND year(a.timestamp) = tr.tyear), 0)) AS returns,
+                      (coalesce((SELECT round(sum(a.amount), 2)
+                                 FROM wp_transactions a
+                                 WHERE a.userid = tr.userid
+                                   AND a.type IN (7)
+                                   AND month(a.timestamp) = tr.tmonth
+                                   AND year(a.timestamp) = tr.tyear), 0)) AS bonus,
+                -- subtract user debits
+                      (coalesce((SELECT round(COALESCE(sum(a.amount), 0), 2)
+                                 FROM wp_transactions a
+                                 WHERE a.userid = tr.userid
+                                   AND a.type IN (2)
+                                   AND month(a.timestamp) = tr.tmonth
+                                   AND year(a.timestamp) = tr.tyear), 0)) AS billed,
+                      (coalesce((SELECT round(COALESCE(sum(a.amount), 0), 2)
+                                 FROM wp_transactions a
+                                 WHERE a.userid = tr.userid
+                                   AND a.type IN (3, 6)
+                                   AND month(a.timestamp) = tr.tmonth
+                                   AND year(a.timestamp) = tr.tyear), 0)) AS billed2
+            FROM (SELECT t.userid, maxid.id, maxid.tmonth, maxid.tyear
+                  FROM wp_transactions t,
+                       (SELECT max(id) AS id, month(timestamp) AS tmonth, year(timestamp) AS tyear
+                        FROM wp_transactions
+                        WHERE year(timestamp) = 2016 -- AND month(timestamp) = 7
+                        GROUP BY month(timestamp), year(timestamp)
+                        ORDER BY year(timestamp), month(timestamp)) AS maxid
+                  WHERE t.userid NOT IN (1, 479, 12203, 5165, 15396, 496, 8585, 7674)
+                  GROUP BY t.userid, maxid.tmonth, maxid.tyear) AS tr) AS trb
+      GROUP BY trb.tyear, trb.tmonth) AS tra
+ORDER BY tra.tyear, tra.tmonth;
