@@ -1,0 +1,9 @@
+-- Who used What, When, How Often
+
+SELECT h."Button Name", count(h."Hits") AS "Sum", MAX("Hit Date") AS "Last Hit", h."Employee ID", "Employees"."First Name", "Employees"."Last Name"
+    FROM "Hit Counter" h
+    LEFT JOIN "Employees" ON "Employees"."Employee ID" = h."Employee ID"
+        WHERE h."Employee ID" > '0' --Select Employee # range or all 
+         AND "Hit Date" >= DATE_TRUNC('month',CURRENT_DATE) - INTERVAL '1' MONTH --Set Interval
+GROUP BY h."Button Name", h."Employee ID", "Employees"."First Name", "Employees"."Last Name"
+ORDER BY h."Employee ID" DESC -- Change "Last Hit" for Most Recent or "Sum" most used 
